@@ -1,0 +1,9 @@
+aiogram>=3.4.1,<4.0.0
+python-dotenv>=1.0.1
+pydantic>=2.7.0
+loguru>=0.7.2
+aiofiles>=23.2.1
+SQLAlchemy[asyncio]>=2.0.30
+aiosqlite>=0.20.0
+qrcode[pil]>=7.4.2
+Pillow>=10.4.0
