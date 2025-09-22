@@ -12,7 +12,7 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from sqlalchemy import select, func
 
 from ..db import base as db_base
-from ..db.models import Unit, User
+from ..db.models import Unit, User, UnitEvent
 from ..keyboards.receive import status_kb, ra_kb, skip_kb, choices_kb, choices_paged_kb
 from ..keyboards import main_menu_kb
 from ..config import get_settings
@@ -281,6 +281,29 @@ async def finish_receive(message: Message, state: FSMContext) -> None:
             master_surname=surname,
         )
         session.add(unit)
+        await session.commit()
+        # Запишем событие 'received'
+        by_user_id: int | None = None
+        by_user_name: str | None = surname
+        if message.from_user is not None:
+            u = (await session.execute(select(User).where(User.tg_id == message.from_user.id))).scalar_one_or_none()
+            if u:
+                by_user_id = u.id
+                if not by_user_name and u.full_name:
+                    parts = u.full_name.strip().split()
+                    if parts:
+                        by_user_name = parts[0]
+            if not by_user_name:
+                ln = message.from_user.last_name or ""
+                fn = message.from_user.first_name or ""
+                by_user_name = (ln or fn) or None
+        evt = UnitEvent(
+            unit_id=unit.id,
+            event_type="received",
+            by_user_id=by_user_id,
+            by_user_name=by_user_name,
+        )
+        session.add(evt)
         await session.commit()
 
     await message.answer(

@@ -16,7 +16,7 @@ from aiogram.types import CallbackQuery, Message, BufferedInputFile
 from sqlalchemy import select
 
 from ..db import base as db_base
-from ..db.models import Unit, Repair, User, Attachment
+from ..db.models import Unit, Repair, User, Attachment, UnitEvent
 from ..keyboards.receive import choices_paged_kb
 from ..config import get_settings
 from ..db.base import setup_engine, init_db
@@ -105,12 +105,77 @@ async def unit_pick(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.update_data(unit_id=unit_id)
-    # Дату начала ставим автоматически при завершении (сегодняшнюю)
+    # Зафиксируем событие начала ремонта
+    await ensure_db()
+    if db_base.async_session is not None:
+        async with db_base.async_session() as session:
+            by_user_id = None
+            by_user_name = None
+            if callback.from_user is not None:
+                u = (await session.execute(select(User).where(User.tg_id == callback.from_user.id))).scalar_one_or_none()
+                if u:
+                    by_user_id = u.id
+                    if u.full_name:
+                        by_user_name = (u.full_name.strip().split() or [None])[0]
+                if by_user_name is None:
+                    ln = callback.from_user.last_name or ""
+                    fn = callback.from_user.first_name or ""
+                    by_user_name = (ln or fn) or None
+            evt = UnitEvent(
+                unit_id=unit_id,
+                event_type="repair_open",
+                by_user_id=by_user_id,
+                by_user_name=by_user_name,
+            )
+            session.add(evt)
+            await session.commit()
+
+    # Переходим к вводу неисправности
     await state.set_state(RepairStates.fault)
     await callback.message.answer("Опишите неисправность (кратко):")
 
 
 # Убрали шаг ввода даты: дата будет выставлена автоматически
+
+
+@router.callback_query(F.data.startswith("unit:repair:"))
+async def start_repair_from_card(callback: CallbackQuery, state: FSMContext) -> None:
+    """Старт ремонта из карточки блока по unit_id."""
+    await callback.answer()
+    try:
+        unit_id = int((callback.data or "").split(":")[-1])
+    except Exception:
+        await callback.message.answer("Некорректный идентификатор блока")
+        return
+    await state.clear()
+    await state.update_data(unit_id=unit_id)
+    # Зафиксируем событие начала ремонта
+    await ensure_db()
+    if db_base.async_session is not None:
+        async with db_base.async_session() as session:
+            by_user_id = None
+            by_user_name = None
+            if callback.from_user is not None:
+                u = (await session.execute(select(User).where(User.tg_id == callback.from_user.id))).scalar_one_or_none()
+                if u:
+                    by_user_id = u.id
+                    if u.full_name:
+                        by_user_name = (u.full_name.strip().split() or [None])[0]
+                if by_user_name is None:
+                    ln = callback.from_user.last_name or ""
+                    fn = callback.from_user.first_name or ""
+                    by_user_name = (ln or fn) or None
+            evt = UnitEvent(
+                unit_id=unit_id,
+                event_type="repair_open",
+                by_user_id=by_user_id,
+                by_user_name=by_user_name,
+            )
+            session.add(evt)
+            await session.commit()
+    # Переходим к вводу неисправности
+    await state.set_state(RepairStates.fault)
+    await callback.message.answer("Опишите неисправность (кратко):")
 
 
 @router.message(RepairStates.fault, F.text)
@@ -135,12 +200,19 @@ async def finish_repair(message: Message, state: FSMContext) -> None:
 
     await ensure_db()
     by_user_id: Optional[int] = None
+    by_user_name: Optional[str] = None
     if db_base.async_session is not None and message.from_user is not None:
         async with db_base.async_session() as session:
             # определить пользователя
             u = (await session.execute(select(User).where(User.tg_id == message.from_user.id))).scalar_one_or_none()
             if u:
                 by_user_id = u.id
+                if u.full_name:
+                    by_user_name = (u.full_name.strip().split() or [None])[0]
+            if by_user_name is None:
+                ln = message.from_user.last_name or ""
+                fn = message.from_user.first_name or ""
+                by_user_name = (ln or fn) or None
             # создать запись о ремонте и обновить статус блока
             closed = datetime.now()
             rep = Repair(
@@ -156,6 +228,15 @@ async def finish_repair(message: Message, state: FSMContext) -> None:
             unit = (await session.execute(select(Unit).where(Unit.id == unit_id))).scalar_one_or_none()
             if unit:
                 unit.status = "done"
+            # Запишем событие о завершении ремонта
+            evt = UnitEvent(
+                unit_id=unit_id,
+                event_type="repair_close",
+                by_user_id=by_user_id,
+                by_user_name=by_user_name,
+                comment=(f"Неисправность: {fault}. Работы: {summary}" if fault else (summary or None)),
+            )
+            session.add(evt)
             await session.commit()
             # Сгенерировать QR и отправить картинку
             if unit:

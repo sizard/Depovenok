@@ -21,6 +21,48 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, server_default=func.now())
 
 
+# ===== 3D printing models =====
+
+
+class Printer(Base):
+    __tablename__ = "printers"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="ready")  # ready | maintenance
+    maintenance_until: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, server_default=func.now())
+
+
+class PrintJob(Base):
+    __tablename__ = "print_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    printer_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    printer_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    file_id: Mapped[str] = mapped_column(String(255))  # Telegram file_id for STL/3MF or G-code
+    filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    photo_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    material: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    copies: Mapped[int] = mapped_column(default=1)
+    expected_time_min: Mapped[int | None] = mapped_column(nullable=True)  # Оценка времени печати, мин
+    status: Mapped[str] = mapped_column(String(32), default="requested", index=True)  # requested|queued|printing|done|failed|canceled
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, server_default=func.now())
+
+
+class PrintEvent(Base):
+    __tablename__ = "print_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(index=True)
+    event_type: Mapped[str] = mapped_column(String(32), index=True)  # requested|queued|printing|done|failed|canceled|note
+    by_user_id: Mapped[int | None] = mapped_column(nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(default=datetime.utcnow, server_default=func.now())
+    comment: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
 

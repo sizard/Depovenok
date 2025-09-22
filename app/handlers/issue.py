@@ -74,6 +74,33 @@ async def set_number(message: Message, state: FSMContext) -> None:
     await message.answer("Выберите блок для выдачи:", reply_markup=choices_paged_kb([i[2] for i in items], "issue:unit", page=0, page_size=5))
 
 
+@router.callback_query(F.data.startswith("unit:issue:"))
+async def start_issue_from_card(callback: CallbackQuery, state: FSMContext) -> None:
+    """Старт выдачи из карточки блока по unit_id."""
+    await callback.answer()
+    try:
+        unit_id = int((callback.data or "").split(":")[-1])
+    except Exception:
+        await callback.message.answer("Некорректный идентификатор блока")
+        return
+
+    await ensure_db()
+    status_ok = False
+    if db_base.async_session is not None:
+        async with db_base.async_session() as session:
+            u = (await session.execute(select(Unit).where(Unit.id == unit_id))).scalar_one_or_none()
+            if u and u.status == "done":
+                status_ok = True
+    if not status_ok:
+        await callback.message.answer("Этот блок нельзя выдать: ремонт не завершён (статус не 'done').")
+        return
+
+    await state.clear()
+    await state.update_data(unit_id=unit_id)
+    await state.set_state(IssueStates.destination_machine)
+    await callback.message.answer("Укажите место назначения (РА1/РА2/РА3) или пропустите:", reply_markup=ra_kb())
+
+
 @router.callback_query(IssueStates.unit_choice, F.data.startswith("issue:unit:page:"))
 async def unit_page(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()

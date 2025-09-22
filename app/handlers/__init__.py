@@ -9,6 +9,7 @@ from .blocks import router as blocks_router
 from .receive import router as receive_router
 from .repair import router as repair_router
 from .issue import router as issue_router
+from .printing import router as printing_router
 
 
 def setup_routers() -> Router:
@@ -21,5 +22,6 @@ def setup_routers() -> Router:
     root.include_router(receive_router)
     root.include_router(repair_router)
     root.include_router(issue_router)
+    root.include_router(printing_router)
     root.include_router(echo_router)
     return root
